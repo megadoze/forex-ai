@@ -66,6 +66,10 @@ export async function GET() {
     allowedTrade,
     blockedReason,
 
+    historyFrom: featured[0]?.time,
+    historyTo: featured[featured.length - 1]?.time,
+    historyCandles: featured.length,
+
     signalTime: current.time,
     signalHourUtc: new Date(current.time).getUTCHours(),
 

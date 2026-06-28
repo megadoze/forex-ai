@@ -5,6 +5,7 @@ import { fetchBacktest, fetchPrediction } from "@/lib/api";
 import { PredictionCard } from "@/components/predictionCard";
 import { BacktestCard } from "@/components/backtestCard";
 import { LoadingCard } from "@/components/loadingCard";
+import { SyncButton } from "@/components/syncButton";
 
 export default function Home() {
   const predictionQuery = useQuery({
@@ -36,9 +37,9 @@ export default function Home() {
     <main className="min-h-screen bg-black text-white p-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-4xl font-bold">EUR/USD AI Analyst</h1>
+              <h1 className="text-4xl font-bold">EUR/USD AI Analyst </h1>
 
               <p className="text-zinc-400 mt-2">
                 Similarity model · ATR targets · final trade filters
@@ -50,12 +51,16 @@ export default function Home() {
               </p>
             </div>
 
-            {predictionQuery.isFetching && !predictionQuery.isLoading && (
-              <div className="flex items-center gap-2 text-sm text-zinc-400">
-                <div className="h-4 w-4 rounded-full border-2 border-zinc-700 border-t-white animate-spin" />
-                Refreshing
-              </div>
-            )}
+            <div className="flex flex-col md:items-end gap-2">
+              <SyncButton />
+
+              {predictionQuery.isFetching && !predictionQuery.isLoading && (
+                <div className="absolute top-10 right-5 flex items-center gap-2 text-sm text-zinc-400">
+                  <div className="h-4 w-4 rounded-full border-2 border-zinc-700 border-t-white animate-spin" />
+                  Refreshing
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

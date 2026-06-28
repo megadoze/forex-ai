@@ -11,7 +11,6 @@ export function SyncButton() {
 
   async function syncData() {
     const savedSecret = localStorage.getItem("sync_secret");
-
     const secret = savedSecret || window.prompt("Enter sync secret:");
 
     if (!secret) return;
@@ -19,7 +18,7 @@ export function SyncButton() {
     localStorage.setItem("sync_secret", secret);
 
     setLoading(true);
-    setStatus(null);
+    setStatus("Updating data...");
 
     try {
       const res = await fetch("/api/sync", {
@@ -36,11 +35,14 @@ export function SyncButton() {
         throw new Error(data.error || "Sync failed");
       }
 
-      await queryClient.invalidateQueries({
+      setStatus("Data updated. Refreshing signal...");
+
+      await queryClient.refetchQueries({
         queryKey: ["prediction-final"],
+        type: "active",
       });
 
-      setStatus("Data synced");
+      setStatus("Data updated. Signal refreshed.");
     } catch (error) {
       console.error(error);
       setStatus("Sync failed");
@@ -61,7 +63,7 @@ export function SyncButton() {
         disabled={loading}
         className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
       >
-        {loading ? "Syncing..." : "Update data"}
+        {loading ? "Updating..." : "Update data"}
       </button>
 
       <button

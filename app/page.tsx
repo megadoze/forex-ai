@@ -8,6 +8,7 @@ import { LoadingCard } from "@/components/loadingCard";
 import { SyncButton } from "@/components/syncButton";
 
 export default function Home() {
+  
   const predictionQuery = useQuery({
     queryKey: ["prediction-final"],
     queryFn: fetchPrediction,

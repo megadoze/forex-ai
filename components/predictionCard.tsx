@@ -88,9 +88,7 @@ function getExecutionProbabilities(prediction: any) {
   const finalDirection = prediction.direction;
 
   const isInverted =
-    rawDirection &&
-    finalDirection &&
-    rawDirection !== finalDirection;
+    rawDirection && finalDirection && rawDirection !== finalDirection;
 
   if (isInverted) {
     return {
@@ -107,6 +105,34 @@ function getExecutionProbabilities(prediction: any) {
     rawUp,
     rawDown,
   };
+}
+
+function formatLocalSignalTime(time?: string) {
+  if (!time) return null;
+
+  const date = new Date(time);
+
+  if (Number.isNaN(date.getTime())) return time;
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  }).format(date);
+}
+
+function getLocalSignalHour(time?: string) {
+  if (!time) return null;
+
+  const date = new Date(time);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.getHours();
 }
 
 export function PredictionCard({ prediction }: Props) {
@@ -130,6 +156,9 @@ export function PredictionCard({ prediction }: Props) {
   const statusTitle = getStatusTitle(signalMode);
   const reasonText = getReasonText(signalMode, blockedReason);
 
+  const localSignalTime = formatLocalSignalTime(prediction.signalTime);
+  const localSignalHour = getLocalSignalHour(prediction.signalTime);
+
   return (
     <div className={`rounded-2xl p-6 border ${getCardClass(signalMode)}`}>
       <div className="flex items-start justify-between gap-6">
@@ -145,9 +174,7 @@ export function PredictionCard({ prediction }: Props) {
                   {tradeSide} EUR/USD
                 </p>
 
-                <p className="text-emerald-300 mt-2">
-                  Open trade is allowed.
-                </p>
+                <p className="text-emerald-300 mt-2">Open trade is allowed.</p>
               </>
             )}
 
@@ -165,26 +192,18 @@ export function PredictionCard({ prediction }: Props) {
 
             {signalMode === "no_trade" && (
               <>
-                <p className="text-2xl font-bold text-white">
-                  Do not enter
-                </p>
+                <p className="text-2xl font-bold text-white">Do not enter</p>
 
-                <p className="text-zinc-400 mt-2">
-                  Market bias: {tradeSide}
-                </p>
+                <p className="text-zinc-400 mt-2">Market bias: {tradeSide}</p>
               </>
             )}
           </div>
 
-          <p className="mt-4 text-sm text-zinc-300">
-            Reason: {reasonText}
-          </p>
+          <p className="mt-4 text-sm text-zinc-300">Reason: {reasonText}</p>
         </div>
 
         <div className="text-right shrink-0">
-          <p className="text-2xl font-bold">
-            {prediction.price?.toFixed(5)}
-          </p>
+          <p className="text-2xl font-bold">{prediction.price?.toFixed(5)}</p>
 
           <p className="text-xs text-zinc-500 mt-2">
             TP ATR × {prediction.tpMultiplier ?? 1.6}
@@ -230,8 +249,7 @@ export function PredictionCard({ prediction }: Props) {
         <p className="text-sm text-zinc-400">Investor summary</p>
 
         <p className="mt-2 text-lg font-semibold text-white">
-          {signalMode === "trade" &&
-            `${tradeSide} is allowed now.`}
+          {signalMode === "trade" && `${tradeSide} is allowed now.`}
 
           {signalMode === "watch" &&
             `Wait. Possible ${tradeSide}, but confidence is not high enough.`}
@@ -242,11 +260,9 @@ export function PredictionCard({ prediction }: Props) {
       </div>
 
       <div className="text-sm text-zinc-500 mt-4 space-y-1">
-        {prediction.signalTime && <p>Signal time: {prediction.signalTime}</p>}
+        {localSignalTime && <p>Signal time: {localSignalTime}</p>}
 
-        {prediction.signalHourUtc !== undefined && (
-          <p>UTC hour: {prediction.signalHourUtc}</p>
-        )}
+        {localSignalHour !== null && <p>Local hour: {localSignalHour}</p>}
 
         <p>
           Final confidence:{" "}
@@ -288,6 +304,14 @@ export function PredictionCard({ prediction }: Props) {
                 {prediction.downMatches}
               </p>
             )}
+
+          {prediction.signalTime && (
+            <p>Signal time UTC: {prediction.signalTime}</p>
+          )}
+
+          {prediction.signalHourUtc !== undefined && (
+            <p>UTC hour: {prediction.signalHourUtc}</p>
+          )}
 
           {prediction.reason && <p>Model reason: {prediction.reason}</p>}
           {blockedReason && <p>Blocked reason: {blockedReason}</p>}

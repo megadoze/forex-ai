@@ -18,7 +18,7 @@ export function SyncButton() {
     localStorage.setItem("sync_secret", secret);
 
     setLoading(true);
-    setStatus("Updating data...");
+    setStatus("Updating market data...");
 
     try {
       const res = await fetch("/api/sync", {
@@ -35,14 +35,14 @@ export function SyncButton() {
         throw new Error(data.error || "Sync failed");
       }
 
-      setStatus("Data updated. Refreshing signal...");
+      setStatus("Data updated. Refreshing live signal...");
 
       await queryClient.refetchQueries({
-        queryKey: ["prediction-final"],
+        queryKey: ["prediction-v2-live"],
         type: "active",
       });
 
-      setStatus("Data updated. Signal refreshed.");
+      setStatus("Data updated. Live signal refreshed.");
     } catch (error) {
       console.error(error);
       setStatus("Sync failed");
@@ -68,7 +68,8 @@ export function SyncButton() {
 
       <button
         onClick={resetSecret}
-        className="text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer"
+        disabled={loading}
+        className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50 cursor-pointer"
       >
         Reset key
       </button>

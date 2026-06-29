@@ -55,6 +55,30 @@ function matchBucket(matches: number) {
   return "16+";
 }
 
+function parsePositiveNumber(value: string | null, fallback: number) {
+  const n = Number(value);
+
+  if (!Number.isFinite(n)) return fallback;
+  if (n <= 0) return fallback;
+
+  return n;
+}
+
+type MinConfidence = "medium" | "high";
+
+function parseMinConfidence(value: string | null): MinConfidence {
+  if (value === "medium") return "medium";
+  return "high";
+}
+
+function isConfidenceAllowed(confidence: string, minConfidence: MinConfidence) {
+  if (minConfidence === "high") {
+    return confidence === "high";
+  }
+
+  return confidence === "medium" || confidence === "high";
+}
+
 type TradeResult = {
   result: "win" | "loss";
   pips: number;
@@ -65,31 +89,39 @@ function tradeResult(
   data: any[],
   index: number,
   direction: Direction,
+  tpMultiplier: number,
+  slMultiplier: number,
 ): TradeResult | null {
   const entry = data[index].close;
   const atr = data[index].atr14;
 
   if (!atr || atr <= 0) return null;
 
-  const tp = atr * 1.2;
-  const sl = atr * 1.0;
+  const tp = atr * tpMultiplier;
+  const sl = atr * slMultiplier;
 
   for (let i = index + 1; i <= index + LOOKAHEAD; i++) {
     const c = data[i];
     if (!c) return null;
 
     if (direction === "up") {
-      if (c.high >= entry + tp)
+      if (c.high >= entry + tp) {
         return { result: "win", pips: tp * 10000, exitIndex: i };
-      if (c.low <= entry - sl)
+      }
+
+      if (c.low <= entry - sl) {
         return { result: "loss", pips: -sl * 10000, exitIndex: i };
+      }
     }
 
     if (direction === "down") {
-      if (c.low <= entry - tp)
+      if (c.low <= entry - tp) {
         return { result: "win", pips: tp * 10000, exitIndex: i };
-      if (c.high >= entry + sl)
+      }
+
+      if (c.high >= entry + sl) {
         return { result: "loss", pips: -sl * 10000, exitIndex: i };
+      }
     }
   }
 
@@ -113,6 +145,7 @@ async function loadAllCandles(symbol: string) {
     if (!data || data.length === 0) break;
 
     allRows = allRows.concat(data);
+
     if (data.length < BATCH_SIZE) break;
 
     from += BATCH_SIZE;
@@ -138,18 +171,39 @@ function finalize(s: any) {
   };
 }
 
-export async function GET() {
+function isInsideTestWindow(
+  time: string,
+  from: string | null,
+  to: string | null,
+) {
+  const t = new Date(time).getTime();
+
+  if (from && t < new Date(from).getTime()) return false;
+  if (to && t >= new Date(to).getTime()) return false;
+
+  return true;
+}
+
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url);
+
+    const testFrom = searchParams.get("from");
+    const testTo = searchParams.get("to");
+
+    const tpMultiplier = parsePositiveNumber(searchParams.get("tp"), 1.6);
+    const slMultiplier = parsePositiveNumber(searchParams.get("sl"), 1.0);
+
+    const minConfidence = parseMinConfidence(searchParams.get("minConfidence"));
+
     const eurusdCandles = await loadAllCandles("EURUSD");
     const dxyCandles = await loadAllCandles("DXY");
 
     const eurusd = addFeatures(eurusdCandles);
     const dxy = addFeatures(dxyCandles);
-    const featured = mergeDxy(eurusd, dxy);
 
-    const dxyMergedCandles = featured.filter(
-      (c) => c.dxyClose !== undefined,
-    ).length;
+    const featured = mergeDxy(eurusd, dxy);
+    const featuredWithDxy = featured.filter((c) => c.dxyClose !== undefined);
 
     const stats = {
       total: {
@@ -164,7 +218,13 @@ export async function GET() {
       high: { signals: 0, wins: 0, losses: 0, pips: 0 },
     };
 
-    const inverse = { signals: 0, wins: 0, losses: 0, pips: 0 };
+    const inverse = {
+      signals: 0,
+      wins: 0,
+      losses: 0,
+      pips: 0,
+    };
+
     const trades = [];
 
     const byMatches: Record<string, SimpleStats> = {
@@ -189,24 +249,35 @@ export async function GET() {
       "high_16+": createSimpleStats(),
     };
 
-    let i = 400;
-
     const byHour: Record<string, SimpleStats> = {};
     const byHourDirection: Record<string, SimpleStats> = {};
 
     for (let h = 0; h < 24; h++) {
       byHour[String(h)] = createSimpleStats();
-
       byHourDirection[`${h}_up`] = createSimpleStats();
       byHourDirection[`${h}_down`] = createSimpleStats();
     }
 
-    while (i < featured.length - LOOKAHEAD) {
-      const prediction = predict(featured, i);
+    let i = 400;
+
+    while (i < featuredWithDxy.length - LOOKAHEAD) {
+      const candle = featuredWithDxy[i];
+
+      if (!isInsideTestWindow(candle.time, testFrom, testTo)) {
+        i++;
+        continue;
+      }
+
+      const prediction = predict(featuredWithDxy, i);
+
+      if (!isConfidenceAllowed(prediction.confidence, minConfidence)) {
+        i++;
+        continue;
+      }
 
       if (
         !isAllowedTrade(
-          featured[i].time,
+          candle.time,
           prediction.direction,
           prediction.confidence,
           prediction.reason,
@@ -216,16 +287,34 @@ export async function GET() {
         continue;
       }
 
-      const result = tradeResult(featured, i, prediction.direction);
+      const result = tradeResult(
+        featuredWithDxy,
+        i,
+        prediction.direction,
+        tpMultiplier,
+        slMultiplier,
+      );
 
       const inverseDirection: Direction =
         prediction.direction === "up" ? "down" : "up";
-      const inverseResult = tradeResult(featured, i, inverseDirection);
+
+      const inverseResult = tradeResult(
+        featuredWithDxy,
+        i,
+        inverseDirection,
+        tpMultiplier,
+        slMultiplier,
+      );
 
       if (inverseResult) {
         inverse.signals++;
-        if (inverseResult.result === "win") inverse.wins++;
-        else inverse.losses++;
+
+        if (inverseResult.result === "win") {
+          inverse.wins++;
+        } else {
+          inverse.losses++;
+        }
+
         inverse.pips += inverseResult.pips;
       }
 
@@ -237,6 +326,7 @@ export async function GET() {
       const bucket = prediction.confidence as "medium" | "high";
 
       stats.total.signals++;
+
       if (prediction.direction === "up") stats.total.upSignals++;
       if (prediction.direction === "down") stats.total.downSignals++;
 
@@ -254,14 +344,12 @@ export async function GET() {
       stats[bucket].pips += result.pips;
 
       const matchesBucket = matchBucket(prediction.matches);
-
-      const hour = new Date(featured[i].time).getUTCHours();
+      const hour = new Date(candle.time).getUTCHours();
 
       addSimpleTrade(byHour[String(hour)], result.result, result.pips);
 
-      const hourDirectionKey = `${hour}_${prediction.direction}`;
       addSimpleTrade(
-        byHourDirection[hourDirectionKey],
+        byHourDirection[`${hour}_${prediction.direction}`],
         result.result,
         result.pips,
       );
@@ -279,7 +367,7 @@ export async function GET() {
       }
 
       trades.push({
-        time: featured[i].time,
+        time: candle.time,
         direction: prediction.direction,
         rawDirection: prediction.rawDirection,
         probabilityUp: prediction.probabilityUp,
@@ -290,24 +378,34 @@ export async function GET() {
         pips: result.pips,
         upMatches: prediction.upMatches,
         downMatches: prediction.downMatches,
-        dxyClose: featured[i].dxyClose,
-        dxyReturn1: featured[i].dxyReturn1,
-        dxyReturn4: featured[i].dxyReturn4,
-        dxyTrend: featured[i].dxyTrend,
+        dxyClose: candle.dxyClose,
+        dxyReturn1: candle.dxyReturn1,
+        dxyReturn4: candle.dxyReturn4,
+        dxyTrend: candle.dxyTrend,
       });
 
       i = result.exitIndex + 1;
     }
 
     return NextResponse.json({
+      testFrom,
+      testTo,
+      tpMultiplier,
+      slMultiplier,
+
       eurusdRawCandles: eurusdCandles.length,
       dxyRawCandles: dxyCandles.length,
       totalCandles: featured.length,
-      dxyMergedCandles,
+      dxyMergedCandles: featuredWithDxy.length,
+
+      historyFrom: featuredWithDxy[0]?.time,
+      historyTo: featuredWithDxy[featuredWithDxy.length - 1]?.time,
 
       total: finalize(stats.total),
       medium: finalize(stats.medium),
       high: finalize(stats.high),
+
+      minConfidence,
 
       byMatches,
       byConfidenceAndMatches,
@@ -318,6 +416,11 @@ export async function GET() {
       inverse: finalize(inverse),
     });
   } catch (error) {
-    return NextResponse.json({ error }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 },
+    );
   }
 }

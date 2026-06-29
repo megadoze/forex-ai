@@ -6,6 +6,42 @@ import { mergeDxy } from "@/lib/mergeDxy";
 import { predict } from "@/lib/model";
 import { getBlockedReason } from "@/lib/tradeFilters";
 
+const TP_MULTIPLIER = 1.6;
+const SL_MULTIPLIER = 1.0;
+
+async function fetchCandles(symbol: string, limit = 30000) {
+  const pageSize = 1000;
+  const allRows: any[] = [];
+
+  for (let from = 0; from < limit; from += pageSize) {
+    const to = Math.min(from + pageSize - 1, limit - 1);
+
+    const { data, error } = await supabaseAdmin
+      .from("candles")
+      .select("*")
+      .eq("symbol", symbol)
+      .eq("timeframe", "15m")
+      .order("time", { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data || data.length === 0) {
+      break;
+    }
+
+    allRows.push(...data);
+
+    if (data.length < pageSize) {
+      break;
+    }
+  }
+
+  return allRows;
+}
+
 function mapRows(rows: any[]) {
   return rows
     .map((c) => ({
@@ -20,55 +56,89 @@ function mapRows(rows: any[]) {
 }
 
 export async function GET() {
-  const { data, error } = await supabaseAdmin
-    .from("candles")
-    .select("*")
-    .eq("symbol", "EURUSD")
-    .eq("timeframe", "15m")
-    .order("time", { ascending: false })
-    .limit(6000);
+  let data: any[] = [];
+  let dxyData: any[] = [];
 
-  if (error || !data) {
-    return NextResponse.json({ error }, { status: 500 });
-  }
-
-  const { data: dxyData, error: dxyError } = await supabaseAdmin
-    .from("candles")
-    .select("*")
-    .eq("symbol", "DXY")
-    .eq("timeframe", "15m")
-    .order("time", { ascending: false })
-    .limit(6000);
-
-  if (dxyError || !dxyData) {
-    return NextResponse.json({ error: dxyError }, { status: 500 });
+  try {
+    data = await fetchCandles("EURUSD", 30000);
+    dxyData = await fetchCandles("DXY", 30000);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 },
+    );
   }
 
   const eurusd = addFeatures(mapRows(data));
   const dxy = addFeatures(mapRows(dxyData));
   const featured = mergeDxy(eurusd, dxy);
 
-  const current = featured[featured.length - 1];
-  const prediction = predict(featured);
+  const featuredWithDxy = featured.filter((c) => c.dxyClose !== undefined);
 
-  const blockedReason = getBlockedReason(
+  if (!featuredWithDxy.length) {
+    return NextResponse.json(
+      {
+        error: "No merged EURUSD/DXY candles",
+        eurusdRawCandles: data.length,
+        dxyRawCandles: dxyData.length,
+        eurusdCandles: eurusd.length,
+        dxyCandles: dxy.length,
+      },
+      { status: 500 },
+    );
+  }
+
+  const current = featuredWithDxy[featuredWithDxy.length - 1];
+  const prediction = predict(featuredWithDxy);
+
+  const filterBlockedReason = getBlockedReason(
     current.time,
     prediction.direction,
     prediction.confidence,
     prediction.reason,
   );
 
-  const allowedTrade = blockedReason === null;
+  const allowedByFilters = filterBlockedReason === null;
+  const isHighConfidence = prediction.confidence === "high";
+
+  const allowedTrade = allowedByFilters && isHighConfidence;
+
+  const signalMode = !allowedByFilters
+    ? "no_trade"
+    : isHighConfidence
+      ? "trade"
+      : "watch";
+
+  const blockedReason = !allowedByFilters
+    ? filterBlockedReason
+    : !isHighConfidence
+      ? "watch_medium_confidence"
+      : null;
+
+  const finalConfidence =
+    signalMode === "trade" ? "high" : signalMode === "watch" ? "medium" : "low";
 
   return NextResponse.json({
     ...prediction,
 
     allowedTrade,
+    signalMode,
     blockedReason,
 
-    historyFrom: featured[0]?.time,
-    historyTo: featured[featured.length - 1]?.time,
-    historyCandles: featured.length,
+    tpMultiplier: TP_MULTIPLIER,
+    slMultiplier: SL_MULTIPLIER,
+
+    historyFrom: featuredWithDxy[0]?.time,
+    historyTo: featuredWithDxy[featuredWithDxy.length - 1]?.time,
+    historyCandles: featuredWithDxy.length,
+    eurusdCandles: eurusd.length,
+    dxyCandles: dxy.length,
+    dxyMergedCandles: featuredWithDxy.length,
+
+    eurusdRawCandles: data.length,
+    dxyRawCandles: dxyData.length,
 
     signalTime: current.time,
     signalHourUtc: new Date(current.time).getUTCHours(),
@@ -78,6 +148,6 @@ export async function GET() {
     dxyReturn4: current.dxyReturn4,
     dxyTrend: current.dxyTrend,
 
-    finalConfidence: allowedTrade ? prediction.confidence : "low",
+    finalConfidence,
   });
 }

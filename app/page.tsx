@@ -8,28 +8,26 @@ import { LoadingCard } from "@/components/loadingCard";
 import { SyncButton } from "@/components/syncButton";
 
 export default function Home() {
-  
   const predictionQuery = useQuery({
-    queryKey: ["prediction-final"],
+    queryKey: ["prediction-v2-live"],
     queryFn: fetchPrediction,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   });
 
   const backtestQuery = useQuery({
-    queryKey: ["backtest-final-baseline"],
+    queryKey: ["backtest-v2-high-only"],
     queryFn: fetchBacktest,
+    enabled: false,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
 
-  const hasError = predictionQuery.error || backtestQuery.error;
-
-  if (hasError) {
+  if (predictionQuery.error) {
     return (
       <main className="min-h-screen bg-black text-white p-8">
-        Ошибка загрузки данных.
+        Ошибка загрузки live signal.
       </main>
     );
   }
@@ -40,27 +38,19 @@ export default function Home() {
         <div className="mb-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-4xl font-bold">EUR/USD AI Analyst </h1>
+              <h1 className="text-4xl font-bold">EUR/USD AI Analyst</h1>
 
               <p className="text-zinc-400 mt-2">
-                Similarity model · ATR targets · final trade filters
+                Similarity model · ATR TP 1.6 / SL 1.0 · high-only execution
               </p>
 
               <p className="text-zinc-500 text-sm mt-1">
-                Live signal refreshes every 60 seconds. Backtest is fixed
-                baseline.
+                High = trade · Medium = watch · Low = no trade
               </p>
             </div>
 
             <div className="flex flex-col md:items-end gap-2">
               <SyncButton />
-
-              {predictionQuery.isFetching && !predictionQuery.isLoading && (
-                <div className="absolute top-10 right-5 flex items-center gap-2 text-sm text-zinc-400">
-                  <div className="h-4 w-4 rounded-full border-2 border-zinc-700 border-t-white animate-spin" />
-                  Refreshing
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -72,10 +62,33 @@ export default function Home() {
             <PredictionCard prediction={predictionQuery.data} />
           )}
 
-          {backtestQuery.isLoading ? (
-            <LoadingCard title="Loading backtest baseline..." />
-          ) : (
+          {backtestQuery.isFetching ? (
+            <LoadingCard title="Running backtest v2..." />
+          ) : backtestQuery.data ? (
             <BacktestCard backtest={backtestQuery.data} />
+          ) : (
+            <div className="rounded-2xl bg-zinc-900 p-6 border border-zinc-800">
+              <p className="text-zinc-400">Backtest</p>
+
+              <p className="text-sm text-zinc-500 mt-2">
+                Strategy v2 · TP ATR × 1.6 · SL ATR × 1.0 · high-only
+              </p>
+
+              <p className="text-zinc-500 mt-4">
+                Backtest is heavy, so it does not run automatically.
+              </p>
+
+              <button
+                onClick={() => backtestQuery.refetch()}
+                className="mt-5 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+              >
+                Run backtest
+              </button>
+
+              {backtestQuery.error && (
+                <p className="text-sm text-red-400 mt-3">Backtest failed.</p>
+              )}
+            </div>
           )}
         </div>
       </div>

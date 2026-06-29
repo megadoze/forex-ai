@@ -11,7 +11,7 @@ export async function fetchPrediction() {
 }
 
 export async function fetchBacktest() {
-  const res = await fetch("/api/backtest", {
+  const res = await fetch("/api/backtest?tp=1.6&sl=1.0&minConfidence=high", {
     cache: "no-store",
   });
 

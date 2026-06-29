@@ -6,8 +6,11 @@ export function isAllowedTradeHour(time: string) {
 
   if (hour === 7) return false;
   if (hour === 8) return false;
-  if (hour === 11) return false;
+  if (hour === 9) return false;
+  if (hour === 10) return false;
   if (hour === 15) return false;
+  if (hour === 16) return false;
+  if (hour === 17) return false;
 
   return true;
 }
@@ -15,7 +18,7 @@ export function isAllowedTradeHour(time: string) {
 export function isAllowedHourDirection(time: string, direction: Direction) {
   const hour = new Date(time).getUTCHours();
 
-  if (hour === 16 && direction === "up") return false;
+  if (hour === 13 && direction === "down") return false;
 
   return true;
 }
@@ -29,16 +32,20 @@ export function getBlockedReason(
   const hour = new Date(time).getUTCHours();
 
   if (reason === "outside_session") return "outside_session";
-  if (confidence === "low") return "low_confidence";
 
   if (hour === 7) return "blocked_hour_7_utc";
   if (hour === 8) return "blocked_hour_8_utc";
-  if (hour === 11) return "blocked_hour_11_utc";
+  if (hour === 9) return "blocked_hour_9_utc";
+  if (hour === 10) return "blocked_hour_10_utc";
   if (hour === 15) return "blocked_hour_15_utc";
+  if (hour === 16) return "blocked_hour_16_utc";
+  if (hour === 17) return "blocked_hour_17_utc";
 
-  if (hour === 16 && direction === "up") {
-    return "blocked_16_utc_up";
+  if (hour === 13 && direction === "down") {
+    return "blocked_13_utc_down";
   }
+
+  if (confidence === "low") return "low_confidence";
 
   return null;
 }

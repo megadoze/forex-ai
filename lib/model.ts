@@ -93,7 +93,7 @@ function firstDirectionalHit(data: FeaturedCandle[], index: number) {
     if (hitUp && !hitDown) return "up";
     if (hitDown && !hitUp) return "down";
 
-    if (hitUp && hitDown) return null; // неоднозначная свеча
+    if (hitUp && hitDown) return null;
   }
 
   return null;
@@ -105,44 +105,75 @@ export function predict(
 ) {
   const current = data[currentIndex];
 
+  if (!current) {
+    return {
+      price: 0,
+      direction: "up" as Direction,
+      rawDirection: "up" as Direction,
+      probabilityUp: 0.5,
+      probabilityDown: 0.5,
+      confidence: "low" as const,
+      matches: 0,
+      upMatches: 0,
+      downMatches: 0,
+      reason: "no_current_candle",
+    };
+  }
+
   if (!isTradingSession(current.time)) {
     return {
       price: current.close,
       direction: "up" as Direction,
+      rawDirection: "up" as Direction,
       probabilityUp: 0.5,
       probabilityDown: 0.5,
-      confidence: "low",
+      confidence: "low" as const,
       matches: 0,
+      upMatches: 0,
+      downMatches: 0,
       reason: "outside_session",
     };
   }
 
-  const history = data
-    .slice(100, currentIndex - LOOKAHEAD)
-    .filter((c) => isTradingSession(c.time));
+  const matches: {
+    index: number;
+    distance: number;
+    outcome: "up" | "down";
+  }[] = [];
 
-  const matches = history
-    .map((c) => {
-      const realIndex = data.indexOf(c);
-      const d = distance(current, c);
+  const historyEnd = currentIndex - LOOKAHEAD;
 
-      return {
-        index: realIndex,
-        distance: d,
-        outcome: firstDirectionalHit(data, realIndex),
-      };
-    })
-    .filter((m) => m.outcome)
-    .sort((a, b) => a.distance - b.distance)
-    .filter((m) => m.distance < 2.5)
-    .slice(0, 150);
+  for (let realIndex = 100; realIndex < historyEnd; realIndex++) {
+    const c = data[realIndex];
+
+    if (!c) continue;
+    if (!isTradingSession(c.time)) continue;
+
+    const d = distance(current, c);
+
+    if (d >= 2.5) continue;
+
+    const outcome = firstDirectionalHit(data, realIndex);
+
+    if (!outcome) continue;
+
+    matches.push({
+      index: realIndex,
+      distance: d,
+      outcome,
+    });
+  }
+
+  matches.sort((a, b) => a.distance - b.distance);
+
+  const topMatches = matches.slice(0, 150);
 
   let upScore = 0;
   let downScore = 0;
   let upMatches = 0;
   let downMatches = 0;
 
-  for (const m of matches) {
+  for (const m of topMatches) {
     const weight = Math.exp(-m.distance);
 
     if (m.outcome === "up") {
@@ -181,7 +212,7 @@ export function predict(
     probabilityUp,
     probabilityDown,
     confidence,
-    matches: matches.length,
+    matches: topMatches.length,
     upMatches,
     downMatches,
     reason: "ok",

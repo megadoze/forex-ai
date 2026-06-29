@@ -9,6 +9,22 @@ import { isAllowedTrade } from "@/lib/tradeFilters";
 const LOOKAHEAD = 32;
 const BATCH_SIZE = 1000;
 
+const BACKTEST_CACHE_TTL_MS = 10 * 60 * 1000;
+
+type BacktestCacheValue = {
+  createdAt: number;
+  data: any;
+};
+
+const globalForBacktest = globalThis as unknown as {
+  __backtestCache?: Map<string, BacktestCacheValue>;
+};
+
+const backtestCache =
+  globalForBacktest.__backtestCache ?? new Map<string, BacktestCacheValue>();
+
+globalForBacktest.__backtestCache = backtestCache;
+
 type SimpleStats = {
   signals: number;
   wins: number;
@@ -184,9 +200,30 @@ function isInsideTestWindow(
   return true;
 }
 
+function isPotentialTradeHour(time: string) {
+  const hour = new Date(time).getUTCHours();
+
+  return hour === 11 || hour === 12 || hour === 13 || hour === 14;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
+
+    const cacheKey = searchParams.toString() || "default";
+    const fresh = searchParams.get("fresh") === "1";
+
+    if (!fresh) {
+      const cached = backtestCache.get(cacheKey);
+
+      if (cached && Date.now() - cached.createdAt < BACKTEST_CACHE_TTL_MS) {
+        return NextResponse.json({
+          ...cached.data,
+          cached: true,
+          cacheAgeSeconds: Math.round((Date.now() - cached.createdAt) / 1000),
+        });
+      }
+    }
 
     const testFrom = searchParams.get("from");
     const testTo = searchParams.get("to");
@@ -264,6 +301,11 @@ export async function GET(req: Request) {
       const candle = featuredWithDxy[i];
 
       if (!isInsideTestWindow(candle.time, testFrom, testTo)) {
+        i++;
+        continue;
+      }
+
+      if (!isPotentialTradeHour(candle.time)) {
         i++;
         continue;
       }
@@ -387,11 +429,12 @@ export async function GET(req: Request) {
       i = result.exitIndex + 1;
     }
 
-    return NextResponse.json({
+    const response = {
       testFrom,
       testTo,
       tpMultiplier,
       slMultiplier,
+      minConfidence,
 
       eurusdRawCandles: eurusdCandles.length,
       dxyRawCandles: dxyCandles.length,
@@ -405,8 +448,6 @@ export async function GET(req: Request) {
       medium: finalize(stats.medium),
       high: finalize(stats.high),
 
-      minConfidence,
-
       byMatches,
       byConfidenceAndMatches,
       byHour,
@@ -414,7 +455,16 @@ export async function GET(req: Request) {
 
       lastTrades: trades.slice(-30),
       inverse: finalize(inverse),
+
+      cached: false,
+    };
+
+    backtestCache.set(cacheKey, {
+      createdAt: Date.now(),
+      data: response,
     });
+
+    return NextResponse.json(response);
   } catch (error) {
     return NextResponse.json(
       {

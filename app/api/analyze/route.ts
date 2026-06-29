@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { addFeatures } from "@/lib/indicators";
 import { mergeDxy } from "@/lib/mergeDxy";
 import { predict } from "@/lib/model";
-import { getBlockedReason } from "@/lib/tradeFilters";
+// import { getBlockedReason } from "@/lib/tradeFilters";
 
 const TP_MULTIPLIER = 1.6;
 const SL_MULTIPLIER = 1.0;
@@ -24,19 +24,12 @@ async function fetchCandles(symbol: string, limit = 30000) {
       .order("time", { ascending: false })
       .range(from, to);
 
-    if (error) {
-      throw error;
-    }
-
-    if (!data || data.length === 0) {
-      break;
-    }
+    if (error) throw error;
+    if (!data || data.length === 0) break;
 
     allRows.push(...data);
 
-    if (data.length < pageSize) {
-      break;
-    }
+    if (data.length < pageSize) break;
   }
 
   return allRows;
@@ -73,8 +66,8 @@ export async function GET() {
 
   const eurusd = addFeatures(mapRows(data));
   const dxy = addFeatures(mapRows(dxyData));
-  const featured = mergeDxy(eurusd, dxy);
 
+  const featured = mergeDxy(eurusd, dxy);
   const featuredWithDxy = featured.filter((c) => c.dxyClose !== undefined);
 
   if (!featuredWithDxy.length) {
@@ -93,35 +86,30 @@ export async function GET() {
   const current = featuredWithDxy[featuredWithDxy.length - 1];
   const prediction = predict(featuredWithDxy);
 
-  const filterBlockedReason = getBlockedReason(
-    current.time,
-    prediction.direction,
-    prediction.confidence,
-    prediction.reason,
-  );
-
-  const allowedByFilters = filterBlockedReason === null;
   const isHighConfidence = prediction.confidence === "high";
+  const isMediumConfidence = prediction.confidence === "medium";
+  const isLowConfidence = prediction.confidence === "low";
 
-  const allowedTrade = allowedByFilters && isHighConfidence;
+  const signalMode = isHighConfidence
+    ? "trade"
+    : isMediumConfidence
+      ? "watch"
+      : "no_trade";
 
-  const signalMode = !allowedByFilters
-    ? "no_trade"
-    : isHighConfidence
-      ? "trade"
-      : "watch";
+  const allowedTrade = isHighConfidence;
 
-  const blockedReason = !allowedByFilters
-    ? filterBlockedReason
-    : !isHighConfidence
-      ? "watch_medium_confidence"
+  const blockedReason = isMediumConfidence
+    ? "watch_medium_confidence"
+    : isLowConfidence
+      ? "low_confidence"
       : null;
 
-  const finalConfidence =
-    signalMode === "trade" ? "high" : signalMode === "watch" ? "medium" : "low";
+  const finalConfidence = prediction.confidence;
 
   return NextResponse.json({
     ...prediction,
+
+    price: current.close,
 
     allowedTrade,
     signalMode,
@@ -133,6 +121,7 @@ export async function GET() {
     historyFrom: featuredWithDxy[0]?.time,
     historyTo: featuredWithDxy[featuredWithDxy.length - 1]?.time,
     historyCandles: featuredWithDxy.length,
+
     eurusdCandles: eurusd.length,
     dxyCandles: dxy.length,
     dxyMergedCandles: featuredWithDxy.length,

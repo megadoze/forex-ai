@@ -53,25 +53,6 @@ export async function GET(req: Request) {
 
     const origin = new URL(req.url).origin;
 
-    const syncRes = await fetch(`${origin}/api/sync?outputsize=50`, {
-      cache: "no-store",
-      headers: {
-        authorization: expected,
-      },
-    });
-
-    const syncData = await syncRes.json();
-
-    if (!syncRes.ok) {
-      return NextResponse.json(
-        {
-          error: "Sync failed",
-          details: syncData,
-        },
-        { status: 500 },
-      );
-    }
-
     const analyzeRes = await fetch(`${origin}/api/analyze`, {
       cache: "no-store",
     });
@@ -96,7 +77,6 @@ export async function GET(req: Request) {
         confidence: signal.finalConfidence ?? signal.confidence,
         direction: signal.direction,
         signalTime: signal.signalTime,
-        sync: syncData,
       });
     }
 
@@ -164,7 +144,6 @@ export async function GET(req: Request) {
       price: signal.price,
       confidence: signal.finalConfidence ?? signal.confidence,
       signalTime: signal.signalTime,
-      sync: syncData,
     });
   } catch (error) {
     return NextResponse.json(
